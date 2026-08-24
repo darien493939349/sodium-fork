@@ -1,31 +1,30 @@
-```
-# Rust-specific ignores
+```rust
+# Compiled and build artifacts
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
 target/
-Cargo.lock
 
 # Dependencies
-vendor/
-
-# Compiled and build artifacts
-**/*.rs.bk
-**/*.rlib
-**/*.so
-**/*.dylib
-**/*.dll
-**/*.a
-**/*.o
-**/*.obj
+Cargo.lock
+**/vendor/
 
 # Logs and temp files
 *.log
 *.tmp
-*.swp
 
 # Editors
 .vscode/
 .idea/
+*.swp
+*.swo
 
-# OS generated files
-.DS_Store
-Thumbs.db
+# Environment
+.env
+.env.local
+*.env.*
 ```

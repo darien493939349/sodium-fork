@@ -366,3 +366,97 @@ pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_FrustumCull
     let frustum_box = Box::new(frustum);
     Box::into_raw(frustum_box) as jlong
 }
+
+// ============================================================================
+// Rust Integration / Heartbeat / Batched Mesh Building
+// ============================================================================
+
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::slice;
+
+mod mesh_builder;
+
+// Global Heartbeat Counter to verify Rust is actually running
+// Check this value in Java to ensure integration works
+static RUST_EXECUTION_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Get the current execution count (heartbeat)
+/// Java signature: public static native long getExecutionCount();
+#[no_mangle]
+pub extern "system" fn Java_net_caffeinemc_sodium_render_native_RustIntegration_getExecutionCount() -> u64 {
+    RUST_EXECUTION_COUNTER.load(Ordering::Relaxed)
+}
+
+/// Reset the execution count
+/// Java signature: public static native void resetExecutionCount();
+#[no_mangle]
+pub extern "system" fn Java_net_caffeinemc_sodium_render_native_RustIntegration_resetExecutionCount() {
+    RUST_EXECUTION_COUNTER.store(0, Ordering::Relaxed);
+}
+
+/// Batched Mesh Building Entry Point
+/// Receives pointers to multiple chunk data arrays, builds them all in one go,
+/// and returns a pointer to the unified vertex buffer.
+/// 
+/// Java signature: public static native long buildChunkMeshesBatched(long[] chunkDataPtrs, int chunkCount, int stride, int[] outBufferSize);
+/// 
+/// Args:
+///   chunk_data_ptrs: Pointer to an array of pointers (each points to a chunk's block data)
+///   chunk_count: Number of chunks to process in this batch
+///   stride: Size of each chunk data block
+///   out_buffer_size: Output parameter for the resulting buffer size
+/// Returns:
+///   Pointer to the raw vertex buffer (Java must manage this memory or copy it)
+#[no_mangle]
+pub extern "system" fn Java_net_caffeinemc_sodium_render_native_RustIntegration_buildChunkMeshesBatched(
+    chunk_data_ptrs: *const *const u8,
+    chunk_count: i32,
+    stride: i32,
+    out_buffer_size: *mut i32,
+) -> *mut std::ffi::c_void {
+    // Increment heartbeat - THIS PROVES RUST IS RUNNING
+    RUST_EXECUTION_COUNTER.fetch_add(1, Ordering::Relaxed);
+
+    if chunk_data_ptrs.is_null() || chunk_count <= 0 {
+        return std::ptr::null_mut();
+    }
+
+    unsafe {
+        // Create a slice of the input pointers
+        let chunks = slice::from_raw_parts(chunk_data_ptrs, chunk_count as usize);
+        
+        // Call the optimized mesh builder
+        let mesh_data = mesh_builder::build_batched_mesh(chunks, stride as usize);
+
+        if mesh_data.is_empty() {
+            *out_buffer_size = 0;
+            return std::ptr::null_mut();
+        }
+
+        // Set output size
+        *out_buffer_size = mesh_data.len() as i32;
+
+        // Leak the vector intentionally to transfer ownership to Java
+        // Java must call 'freeBuffer' later to avoid leaks
+        let ptr = mesh_data.as_ptr() as *mut std::ffi::c_void;
+        std::mem::forget(mesh_data); 
+        ptr
+    }
+}
+
+/// Frees a buffer allocated by Rust
+/// Java signature: public static native void freeBuffer(long ptr, int size);
+#[no_mangle]
+pub extern "system" fn Java_net_caffeinemc_sodium_render_native_RustIntegration_freeBuffer(
+    ptr: *mut std::ffi::c_void,
+    size: i32,
+) {
+    if ptr.is_null() {
+        return;
+    }
+    unsafe {
+        // Reconstruct the vector to drop it and free memory
+        let _vec = Vec::from_raw_parts(ptr as *mut u8, size as usize, size as usize);
+        // Vector drops here automatically
+    }
+}
