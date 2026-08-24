@@ -3,8 +3,9 @@
 //! Implements a coarse Z-buffer hierarchy to reject occluded chunks on the CPU
 //! before they reach the GPU, significantly reducing draw calls and fragment shading.
 
-use std::ffi::c_void;
-use std::ptr;
+use jni::JNIEnv;
+use jni::objects::{JClass, JLongArray, JDoubleArray};
+use jni::sys::{jlong, jint};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 // Global execution counter for verification
@@ -24,11 +25,11 @@ pub struct OcclusionContext {
 }
 
 #[no_mangle]
-pub extern "system" fn Java_net_occlusion_RustOcclusion_createContext(
-    _env: *mut jni::JNIEnv,
-    _class: jni::objects::JClass,
-    width: i32,
-    height: i32,
+pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_createOcclusionContext(
+    _env: JNIEnv,
+    _class: JClass,
+    width: jint,
+    height: jint,
 ) -> jlong {
     let w = width as u32;
     let h = height as u32;
@@ -37,12 +38,7 @@ pub extern "system" fn Java_net_occlusion_RustOcclusion_createContext(
     let coarse_w = (w / 16).max(1);
     let coarse_h = (h / 16).max(1);
     
-    let mut buffer = Vec::with_capacity((coarse_w * coarse_h) as usize);
-    // Initialize to far plane (1.0 means nothing occluded yet)
-    unsafe {
-        buffer.set_len((coarse_w * coarse_h) as usize);
-        ptr::write_bytes(buffer.as_mut_ptr(), 0x3F, buffer.len()); // 0x3F800000 is 1.0f
-    }
+    let mut buffer = vec![1.0f32; (coarse_w * coarse_h) as usize];
     
     let ctx = Box::new(OcclusionContext {
         width: w,
@@ -56,39 +52,67 @@ pub extern "system" fn Java_net_occlusion_RustOcclusion_createContext(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_net_occlusion_RustOcclusion_updateHierarchy(
-    env: *mut jni::JNIEnv,
-    _class: jni::objects::JClass,
+pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_updateOcclusionHierarchy(
+    env: JNIEnv,
+    _class: JClass,
     ctx_ptr: jlong,
-    view_matrix_ptr: jlong,
-    proj_matrix_ptr: jlong,
-    opaque_chunks_ptr: jlong,
-    opaque_count: i32,
+    view_matrix: JDoubleArray,
+    proj_matrix: JDoubleArray,
+    opaque_chunks: JLongArray,
 ) {
     if ctx_ptr == 0 { return; }
     
     let context = unsafe { &mut *(ctx_ptr as *mut OcclusionContext) };
-    let view_matrix = unsafe { std::slice::from_raw_parts(view_matrix_ptr as *const f32, 16) };
-    let proj_matrix = unsafe { std::slice::from_raw_parts(proj_matrix_ptr as *const f32, 16) };
-    let chunks = unsafe { std::slice::from_raw_parts(opaque_chunks_ptr as *const ChunkBounds, opaque_count as usize) };
+    
+    // Get view matrix (16 doubles)
+    let mut view_arr = [0.0f64; 16];
+    if env.get_double_array_region(&view_matrix, 0, &mut view_arr).is_err() {
+        return;
+    }
+    
+    // Get projection matrix (16 doubles)
+    let mut proj_arr = [0.0f64; 16];
+    if env.get_double_array_region(&proj_matrix, 0, &mut proj_arr).is_err() {
+        return;
+    }
+    
+    // Get opaque chunks
+    let chunk_count = env.get_array_length(&opaque_chunks).unwrap_or(0) / 6; // 6 floats per chunk bounds
+    if chunk_count == 0 {
+        return;
+    }
+    
+    let mut chunks_data = vec![0.0f64; (chunk_count * 6) as usize];
+    if env.get_double_array_region(&opaque_chunks, 0, &mut chunks_data).is_err() {
+        return;
+    }
     
     OCCLUSION_EXECUTION_COUNT.fetch_add(1, Ordering::Relaxed);
     
     // Reset depth buffer to far plane
-    unsafe {
-        ptr::write_bytes(context.depth_buffer.as_mut_ptr(), 0x3F, context.depth_buffer.len());
+    for val in context.depth_buffer.iter_mut() {
+        *val = 1.0f32;
     }
     
     // Combined matrix for projection
     let mut vp_matrix = [0.0f32; 16];
-    // Convert slices to arrays
-    let view_arr: &[f32; 16] = view_matrix.try_into().unwrap_or(&[0.0; 16]);
-    let proj_arr: &[f32; 16] = proj_matrix.try_into().unwrap_or(&[0.0; 16]);
-    matrix_multiply(&mut vp_matrix, proj_arr, view_arr);
+    // Convert f64 to f32 and multiply
+    let view_f32: [f32; 16] = view_arr.map(|x| x as f32);
+    let proj_f32: [f32; 16] = proj_arr.map(|x| x as f32);
+    matrix_multiply(&mut vp_matrix, &proj_f32, &view_f32);
     
     // Render opaque chunks into coarse depth buffer
-    for chunk in chunks.iter() {
-        update_depth_for_aabb(context, &vp_matrix, chunk);
+    for i in 0..chunk_count as usize {
+        let idx = i * 6;
+        let bounds = ChunkBounds {
+            min_x: chunks_data[idx] as f32,
+            min_y: chunks_data[idx + 1] as f32,
+            min_z: chunks_data[idx + 2] as f32,
+            max_x: chunks_data[idx + 3] as f32,
+            max_y: chunks_data[idx + 4] as f32,
+            max_z: chunks_data[idx + 5] as f32,
+        };
+        update_depth_for_aabb(context, &vp_matrix, &bounds);
     }
     
     // Optional: Build hierarchical levels (mipmaps) for faster testing
@@ -96,17 +120,25 @@ pub extern "system" fn Java_net_occlusion_RustOcclusion_updateHierarchy(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_net_occlusion_RustOcclusion_testBatch(
-    _env: *mut jni::JNIEnv,
-    _class: jni::objects::JClass,
+pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_testOcclusionBatch(
+    env: JNIEnv,
+    _class: JClass,
     ctx_ptr: jlong,
-    bounds_ptr: jlong,
-    count: i32,
+    chunk_bounds: JLongArray,
 ) -> jlong {
     if ctx_ptr == 0 { return 0; }
     
     let context = unsafe { &*(ctx_ptr as *const OcclusionContext) };
-    let bounds = unsafe { std::slice::from_raw_parts(bounds_ptr as *const ChunkBounds, count as usize) };
+    
+    let count = env.get_array_length(&chunk_bounds).unwrap_or(0) / 6;
+    if count == 0 {
+        return 0;
+    }
+    
+    let mut bounds_data = vec![0.0f64; (count * 6) as usize];
+    if env.get_double_array_region(&chunk_bounds, 0, &mut bounds_data).is_err() {
+        return 0;
+    }
     
     let mut visible_mask: u64 = 0;
     let mut culled_count: u32 = 0;
@@ -115,7 +147,17 @@ pub extern "system" fn Java_net_occlusion_RustOcclusion_testBatch(
     let batch_size = 64.min(count as usize);
     
     for i in 0..batch_size {
-        if test_aabb_against_hierarchy(context, &bounds[i]) {
+        let idx = i * 6;
+        let bounds = ChunkBounds {
+            min_x: bounds_data[idx] as f32,
+            min_y: bounds_data[idx + 1] as f32,
+            min_z: bounds_data[idx + 2] as f32,
+            max_x: bounds_data[idx + 3] as f32,
+            max_y: bounds_data[idx + 4] as f32,
+            max_z: bounds_data[idx + 5] as f32,
+        };
+        
+        if test_aabb_against_hierarchy(context, &bounds) {
             visible_mask |= (1u64 << i);
         } else {
             culled_count += 1;
@@ -128,31 +170,15 @@ pub extern "system" fn Java_net_occlusion_RustOcclusion_testBatch(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_net_occlusion_RustOcclusion_freeContext(
-    _env: *mut jni::JNIEnv,
-    _class: jni::objects::JClass,
+pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_freeOcclusionContext(
+    _env: JNIEnv,
+    _class: JClass,
     ctx_ptr: jlong,
 ) {
     if ctx_ptr == 0 { return; }
     unsafe {
         drop(Box::from_raw(ctx_ptr as *mut OcclusionContext));
     }
-}
-
-#[no_mangle]
-pub extern "system" fn Java_net_occlusion_RustOcclusion_getExecutionCount(
-    _env: *mut jni::JNIEnv,
-    _class: jni::objects::JClass,
-) -> jlong {
-    OCCLUSION_EXECUTION_COUNT.load(Ordering::Relaxed) as jlong
-}
-
-#[no_mangle]
-pub extern "system" fn Java_net_occlusion_RustOcclusion_getCulledCount(
-    _env: *mut jni::JNIEnv,
-    _class: jni::objects::JClass,
-) -> jlong {
-    OCCLUSION_CULLED_COUNT.load(Ordering::Relaxed) as jlong
 }
 
 // --- Internal Implementation ---
@@ -261,27 +287,65 @@ fn test_aabb_against_hierarchy(ctx: &OcclusionContext, bounds: &ChunkBounds) -> 
     let mut max_sy = f32::MIN;
     let mut min_depth = f32::MAX;
     
-    // Simplified projection (same as update)
-    // In a real implementation, we'd use the current frame's VP matrix stored in context
-    // Here we assume the test happens immediately after update or context holds the matrix
+    let corners = [
+        [bounds.min_x, bounds.min_y, bounds.min_z],
+        [bounds.max_x, bounds.min_y, bounds.min_z],
+        [bounds.min_x, bounds.max_y, bounds.min_z],
+        [bounds.max_x, bounds.max_y, bounds.min_z],
+        [bounds.min_x, bounds.min_y, bounds.max_z],
+        [bounds.max_x, bounds.min_y, bounds.max_z],
+        [bounds.min_x, bounds.max_y, bounds.max_z],
+        [bounds.max_x, bounds.max_y, bounds.max_z],
+    ];
     
-    // For this simplified version, we just check against the coarse buffer
-    // If the entire AABB projects to pixels where the stored depth is closer than the AABB,
-    // then the AABB is fully occluded.
-    
-    // Quick rejection: if we can't project properly, assume visible
-    true 
-}
-
-// Placeholder imports for JNI types since we are in a library crate
-// These would normally come from the jni crate
-type jlong = i64;
-type jint = i32;
-
-// Mock JNI module structure for compilation without full dependency in this snippet
-mod jni {
-    pub struct JNIEnv;
-    pub mod objects {
-        pub struct JClass;
+    // Simple projection (assuming identity or stored VP matrix)
+    // In production, store the VP matrix in context during update
+    for corner in corners.iter() {
+        let x = corner[0];
+        let y = corner[1];
+        let z = corner[2];
+        
+        // Simplified orthographic projection for testing
+        let sx = (x + 1.0) * 0.5 * ctx.width as f32;
+        let sy = (1.0 - y) * 0.5 * ctx.height as f32;
+        
+        min_sx = min_sx.min(sx);
+        max_sx = max_sx.max(sx);
+        min_sy = min_sy.min(sy);
+        max_sy = max_sy.max(sy);
+        min_depth = min_depth.min(z);
     }
+    
+    // Test against coarse depth buffer
+    let start_x = (min_sx / 16.0).floor() as i32;
+    let end_x = (max_sx / 16.0).ceil() as i32;
+    let start_y = (min_sy / 16.0).floor() as i32;
+    let end_y = (max_sy / 16.0).ceil() as i32;
+    
+    let cw = ctx.coarse_width as i32;
+    let ch = ctx.coarse_height as i32;
+    
+    let mut fully_occluded = true;
+    
+    for y in start_y..end_y {
+        if y < 0 || y >= ch { continue; }
+        for x in start_x..end_x {
+            if x < 0 || x >= cw { continue; }
+            
+            let idx = (y * cw + x) as usize;
+            if idx < ctx.depth_buffer.len() {
+                let stored_depth = ctx.depth_buffer[idx];
+                // If any part of the AABB is closer than stored depth, it's visible
+                if min_depth < stored_depth {
+                    fully_occluded = false;
+                    break;
+                }
+            }
+        }
+        if !fully_occluded {
+            break;
+        }
+    }
+    
+    !fully_occluded
 }
