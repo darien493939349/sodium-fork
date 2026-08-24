@@ -81,7 +81,10 @@ pub extern "system" fn Java_net_occlusion_RustOcclusion_updateHierarchy(
     
     // Combined matrix for projection
     let mut vp_matrix = [0.0f32; 16];
-    matrix_multiply(&mut vp_matrix, proj_matrix, view_matrix);
+    // Convert slices to arrays
+    let view_arr: &[f32; 16] = view_matrix.try_into().unwrap_or(&[0.0; 16]);
+    let proj_arr: &[f32; 16] = proj_matrix.try_into().unwrap_or(&[0.0; 16]);
+    matrix_multiply(&mut vp_matrix, proj_arr, view_arr);
     
     // Render opaque chunks into coarse depth buffer
     for chunk in chunks.iter() {

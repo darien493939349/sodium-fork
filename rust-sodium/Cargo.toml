@@ -14,6 +14,8 @@ jni = "0.21"
 lazy_static = "1.4"
 log = "0.4"
 libc = "0.2"
+rayon = "1.8"
+num_cpus = "1.16"
 
 [features]
 default = []

@@ -9,11 +9,15 @@
 //! - `bitwise_math`: Branchless bitwise comparison operations
 //! - `native_buffer`: Safe native memory allocation with leak detection
 //! - `frustum_culling`: High-performance frustum culling with SIMD support
+//! - `mesh_builder`: Multi-threaded chunk mesh building with internal face culling
+//! - `occlusion`: Hierarchical occlusion culling for GPU optimization
 
 pub mod math_util;
 pub mod bitwise_math;
 pub mod native_buffer;
 pub mod frustum_culling;
+pub mod mesh_builder;
+pub mod occlusion;
 
 use jni::JNIEnv;
 use jni::objects::{JClass, JByteBuffer};
@@ -374,8 +378,6 @@ pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_FrustumCull
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::slice;
 
-mod mesh_builder;
-
 // Global Heartbeat Counter to verify Rust is actually running
 // Check this value in Java to ensure integration works
 static RUST_EXECUTION_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -523,5 +525,161 @@ pub extern "system" fn Java_net_caffeinemc_sodium_render_native_RustIntegration_
         // Reconstruct the vector to drop it and free memory
         let _vec = Vec::from_raw_parts(ptr as *mut u8, size as usize, size as usize);
         // Vector drops here automatically
+    }
+}
+
+// ============================================================================
+// Mesh Builder JNI Bindings (Internal Face Culling + Multi-threading)
+// ============================================================================
+
+use jni::objects::{JByteArray, JLongArray, JIntArray};
+use jni::sys::jlongArray;
+
+/// Get formatted Rust debug info for F3 overlay
+/// Java signature: public static native String getRustDebugInfo();
+#[no_mangle]
+pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_getRustDebugInfo<'a>(
+    env: JNIEnv<'a>,
+    _class: JClass<'a>,
+) -> jni::objects::JString<'a> {
+    let debug_info = mesh_builder::get_rust_debug_info();
+    env.new_string(debug_info).unwrap_or(env.new_string("Rust: Error").unwrap())
+}
+
+/// Build chunk meshes in parallel using all CPU cores with internal face culling
+/// Java signature: public static native int buildChunkMeshParallel(long[] chunkPtrs, int[] strides, long[] outputPtrs, int[] maxVertices);
+#[no_mangle]
+pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_buildChunkMeshParallel(
+    env: JNIEnv,
+    _class: JClass,
+    chunk_ptrs: JLongArray<'_>,
+    strides: JIntArray<'_>,
+    output_ptrs: JLongArray<'_>,
+    max_vertices: JIntArray<'_>,
+) -> jint {
+    // Get array lengths - use reference properly
+    let num_chunks = env.get_array_length(&chunk_ptrs).unwrap_or(0) as usize;
+    if num_chunks == 0 {
+        return 0;
+    }
+
+    // Convert Java arrays to Rust vectors
+    let mut cp_vec = vec![0i64; num_chunks];
+    let mut st_vec = vec![0i32; num_chunks];
+    let mut op_vec = vec![0i64; num_chunks];
+    let mut mv_vec = vec![0i32; num_chunks];
+
+    unsafe {
+        env.get_long_array_region(chunk_ptrs, 0, &mut cp_vec).ok();
+        env.get_int_array_region(strides, 0, &mut st_vec).ok();
+        env.get_long_array_region(output_ptrs, 0, &mut op_vec).ok();
+        env.get_int_array_region(max_vertices, 0, &mut mv_vec).ok();
+    }
+
+    // Convert to raw pointers
+    let chunks_data: Vec<*const u8> = cp_vec.iter().map(|&p| p as *const u8).collect();
+    let strides_vec: Vec<usize> = st_vec.iter().map(|&s| s as usize).collect();
+    let outputs: Vec<*mut mesh_builder::Vertex> = op_vec.iter().map(|&p| p as *mut mesh_builder::Vertex).collect();
+    let max_verts: Vec<usize> = mv_vec.iter().map(|&m| m as usize).collect();
+
+    let mut outputs_mut = outputs.into_iter().collect::<Vec<_>>();
+
+    unsafe {
+        mesh_builder::build_chunk_mesh_parallel(
+            &chunks_data,
+            &strides_vec,
+            &mut outputs_mut,
+            &max_verts,
+        ) as jint
+    }
+}
+
+// ============================================================================
+// Occlusion Culling JNI Bindings (delegates to occlusion module)
+// ============================================================================
+
+// Forward declarations for occlusion functions defined in occlusion.rs
+extern "system" {
+    fn Java_net_occlusion_RustOcclusion_createContext(
+        env: JNIEnv,
+        class: JClass,
+        width: jint,
+        height: jint,
+    ) -> jlong;
+    
+    fn Java_net_occlusion_RustOcclusion_updateHierarchy(
+        env: JNIEnv,
+        class: JClass,
+        context: jlong,
+        view_matrix: jni::objects::JDoubleArray,
+        proj_matrix: jni::objects::JDoubleArray,
+        opaque_chunks: JLongArray,
+    );
+    
+    fn Java_net_occlusion_RustOcclusion_testBatch(
+        env: JNIEnv,
+        class: JClass,
+        context: jlong,
+        chunk_bounds: JLongArray,
+    ) -> jlong;
+    
+    fn Java_net_occlusion_RustOcclusion_freeContext(
+        env: JNIEnv,
+        class: JClass,
+        context: jlong,
+    );
+}
+
+/// Create occlusion culling context
+/// Java signature: public static native long createOcclusionContext(int width, int height);
+#[no_mangle]
+pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_createOcclusionContext(
+    env: JNIEnv,
+    class: JClass,
+    width: jint,
+    height: jint,
+) -> jlong {
+    unsafe {
+        Java_net_occlusion_RustOcclusion_createContext(env, class, width, height)
+    }
+}
+
+/// Update occlusion hierarchy
+#[no_mangle]
+pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_updateOcclusionHierarchy(
+    env: JNIEnv,
+    class: JClass,
+    context: jlong,
+    view_matrix: jni::objects::JDoubleArray,
+    proj_matrix: jni::objects::JDoubleArray,
+    opaque_chunks: JLongArray,
+) {
+    unsafe {
+        Java_net_occlusion_RustOcclusion_updateHierarchy(env, class, context, view_matrix, proj_matrix, opaque_chunks)
+    }
+}
+
+/// Test batch occlusion
+#[no_mangle]
+pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_testOcclusionBatch(
+    env: JNIEnv,
+    class: JClass,
+    context: jlong,
+    chunk_bounds: JLongArray,
+) -> jlong {
+    unsafe {
+        Java_net_occlusion_RustOcclusion_testBatch(env, class, context, chunk_bounds)
+    }
+}
+
+/// Free occlusion context
+#[no_mangle]
+pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_freeOcclusionContext(
+    env: JNIEnv,
+    class: JClass,
+    context: jlong,
+) {
+    unsafe {
+        Java_net_occlusion_RustOcclusion_freeContext(env, class, context)
     }
 }

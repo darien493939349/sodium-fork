@@ -104,11 +104,56 @@ loom {
 }
 
 tasks {
+    // Task to build Rust library and copy natives
+    val buildRustNatives = register<Exec>("buildRustNatives") {
+        workingDir(file("${rootProject.projectDir}/rust-sodium"))
+        commandLine("cargo", "build", "--release")
+        
+        doLast {
+            val rustTargetDir = file("${rootProject.projectDir}/rust-sodium/target/release")
+            val nativesDir = file("${project.projectDir}/src/main/resources/natives")
+            
+            // Copy Linux library
+            val linuxLib = file("$rustTargetDir/libsodium_rust.so")
+            if (linuxLib.exists()) {
+                copy {
+                    from(linuxLib)
+                    into(nativesDir)
+                }
+                println("[Rustium] Copied libsodium_rust.so to natives/")
+            }
+            
+            // Copy macOS library
+            val macLib = file("$rustTargetDir/libsodium_rust.dylib")
+            if (macLib.exists()) {
+                copy {
+                    from(macLib)
+                    into(nativesDir)
+                }
+                println("[Rustium] Copied libsodium_rust.dylib to natives/")
+            }
+            
+            // Copy Windows DLL
+            val winLib = file("$rustTargetDir/sodium_rust.dll")
+            if (winLib.exists()) {
+                copy {
+                    from(winLib)
+                    into(nativesDir)
+                }
+                println("[Rustium] Copied sodium_rust.dll to natives/")
+            }
+        }
+    }
+
     jar {
         from(configurationCommonModJava)
         from(configurationApiModJava)
         if (BuildConfig.SUPPORT_FRAPI) {
             from(configurationFrapiModJava)
+        }
+        // Include natives in the JAR
+        from("src/main/resources/natives") {
+            into("natives")
         }
     }
 
@@ -135,6 +180,8 @@ tasks {
         if (BuildConfig.SUPPORT_FRAPI) {
             from(configurationFrapiModResources)
         }
+        // Ensure Rust natives are built before processing resources
+        dependsOn("buildRustNatives")
     }
 }
 
