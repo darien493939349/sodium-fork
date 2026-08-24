@@ -25,7 +25,7 @@ pub struct OcclusionContext {
 }
 
 #[no_mangle]
-pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_createOcclusionContext(
+pub extern "system" fn Java_com_rustium_RustLib_createContext(
     _env: JNIEnv,
     _class: JClass,
     width: jint,
@@ -52,38 +52,31 @@ pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_cre
 }
 
 #[no_mangle]
-pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_updateOcclusionHierarchy(
+pub extern "system" fn Java_com_rustium_RustLib_buildHierarchyParallel(
     env: JNIEnv,
     _class: JClass,
     ctx_ptr: jlong,
-    view_matrix: JFloatArray<'_>,
-    proj_matrix: JFloatArray<'_>,
-    opaque_chunks: JFloatArray<'_>,
+    view_proj: JFloatArray<'_>,
+    chunks: JFloatArray<'_>,
 ) {
     if ctx_ptr == 0 { return; }
     
     let context = unsafe { &mut *(ctx_ptr as *mut OcclusionContext) };
     
-    // Get view matrix (16 floats)
-    let mut view_arr = [0.0f32; 16];
-    if env.get_float_array_region(&view_matrix, 0, &mut view_arr).is_err() {
+    // Get view-projection matrix (16 floats)
+    let mut vp_arr = [0.0f32; 16];
+    if env.get_float_array_region(&view_proj, 0, &mut vp_arr).is_err() {
         return;
     }
     
-    // Get projection matrix (16 floats)
-    let mut proj_arr = [0.0f32; 16];
-    if env.get_float_array_region(&proj_matrix, 0, &mut proj_arr).is_err() {
-        return;
-    }
-    
-    // Get opaque chunks
-    let chunk_count = env.get_array_length(&opaque_chunks).unwrap_or(0) / 6; // 6 floats per chunk bounds
+    // Get opaque chunks (6 floats per chunk: min_x, min_y, min_z, max_x, max_y, max_z)
+    let chunk_count = env.get_array_length(&chunks).unwrap_or(0) / 6;
     if chunk_count == 0 {
         return;
     }
     
     let mut chunks_data = vec![0.0f32; (chunk_count * 6) as usize];
-    if env.get_float_array_region(&opaque_chunks, 0, &mut chunks_data).is_err() {
+    if env.get_float_array_region(&chunks, 0, &mut chunks_data).is_err() {
         return;
     }
     
@@ -94,11 +87,8 @@ pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_upd
         *val = 1.0f32;
     }
     
-    // Combined matrix for projection
-    let mut vp_matrix = [0.0f32; 16];
-    matrix_multiply(&mut vp_matrix, &proj_arr, &view_arr);
-    
     // Render opaque chunks into coarse depth buffer
+    // Note: vp_arr is already the combined view-projection matrix from Java
     for i in 0..chunk_count as usize {
         let idx = i * 6;
         let bounds = ChunkBounds {
@@ -109,7 +99,7 @@ pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_upd
             max_y: chunks_data[idx + 4],
             max_z: chunks_data[idx + 5],
         };
-        update_depth_for_aabb(context, &vp_matrix, &bounds);
+        update_depth_for_aabb(context, &vp_arr, &bounds);
     }
     
     // Optional: Build hierarchical levels (mipmaps) for faster testing
@@ -117,23 +107,23 @@ pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_upd
 }
 
 #[no_mangle]
-pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_testOcclusionBatch(
+pub extern "system" fn Java_com_rustium_RustLib_testBatchParallel(
     env: JNIEnv,
     _class: JClass,
     ctx_ptr: jlong,
-    chunk_bounds: JFloatArray<'_>,
+    chunks: JFloatArray<'_>,
 ) -> jlong {
     if ctx_ptr == 0 { return 0; }
     
     let context = unsafe { &*(ctx_ptr as *const OcclusionContext) };
     
-    let count = env.get_array_length(&chunk_bounds).unwrap_or(0) / 6;
+    let count = env.get_array_length(&chunks).unwrap_or(0) / 6;
     if count == 0 {
         return 0;
     }
     
     let mut bounds_data = vec![0.0f32; (count * 6) as usize];
-    if env.get_float_array_region(&chunk_bounds, 0, &mut bounds_data).is_err() {
+    if env.get_float_array_region(&chunks, 0, &mut bounds_data).is_err() {
         return 0;
     }
     
@@ -167,7 +157,7 @@ pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_tes
 }
 
 #[no_mangle]
-pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_freeOcclusionContext(
+pub extern "system" fn Java_com_rustium_RustLib_destroyContext(
     _env: JNIEnv,
     _class: JClass,
     ctx_ptr: jlong,

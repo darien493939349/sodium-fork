@@ -20,8 +20,9 @@ pub mod mesh_builder;
 pub mod occlusion;
 
 use jni::JNIEnv;
-use jni::objects::{JClass, JByteBuffer};
+use jni::objects::{JClass, JByteBuffer, JFloatArray};
 use jni::sys::{jint, jlong, JNI_TRUE, JNI_FALSE, jboolean};
+use frustum_culling::{Frustum, Plane, Aabb};
 
 /// Initialize the native library - called once when the library loads
 #[no_mangle]
@@ -226,8 +227,6 @@ pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_util_NativeBuffer_
 // ============================================================================
 // FrustumCulling JNI Bindings
 // ============================================================================
-
-use frustum_culling::{Frustum, Plane, Aabb, build_frustum_planes, normalize_frustum};
 
 /// Create a new frustum from 6 planes
 /// Java signature: public static native long createFrustum(float[] planes);
@@ -537,7 +536,7 @@ use jni::objects::{JLongArray, JIntArray};
 /// Get formatted Rust debug info for F3 overlay
 /// Java signature: public static native String getRustDebugInfo();
 #[no_mangle]
-pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_getRustDebugInfo<'a>(
+pub extern "system" fn Java_com_rustium_RustLib_getRustDebugInfo<'a>(
     env: JNIEnv<'a>,
     _class: JClass<'a>,
 ) -> jni::objects::JString<'a> {
@@ -548,7 +547,7 @@ pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_get
 /// Build chunk meshes in parallel using all CPU cores with internal face culling
 /// Java signature: public static native int buildChunkMeshParallel(long[] chunkPtrs, int[] strides, long[] outputPtrs, int[] maxVertices);
 #[no_mangle]
-pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_buildChunkMeshParallel(
+pub extern "system" fn Java_com_rustium_RustLib_buildChunkMeshParallel(
     env: JNIEnv,
     _class: JClass,
     chunk_ptrs: JLongArray<'_>,
@@ -594,3 +593,87 @@ pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_bui
 // ============================================================================
 // Occlusion Culling JNI Bindings (delegates to occlusion module)
 // ============================================================================
+
+/// Test bounds batch in parallel for frustum culling
+/// Java signature: public static native long testBoundsBatchParallel(float[] planes, float[] bounds);
+#[no_mangle]
+pub extern "system" fn Java_com_rustium_RustLib_testBoundsBatchParallel(
+    env: JNIEnv,
+    _class: JClass,
+    planes: JFloatArray<'_>,
+    bounds: JFloatArray<'_>,
+) -> jlong {
+    // Get plane data (24 floats for 6 planes)
+    let mut planes_arr = [0.0f32; 24];
+    if env.get_float_array_region(&planes, 0, &mut planes_arr).is_err() {
+        return 0;
+    }
+    
+    // Get bounds data (6 floats per AABB)
+    let count = env.get_array_length(&bounds).unwrap_or(0) / 6;
+    if count == 0 {
+        return 0;
+    }
+    
+    let mut bounds_data = vec![0.0f32; (count * 6) as usize];
+    if env.get_float_array_region(&bounds, 0, &mut bounds_data).is_err() {
+        return 0;
+    }
+    
+    // Create frustum from planes
+    let frustum_planes = [
+        Plane::new(planes_arr[0], planes_arr[1], planes_arr[2], planes_arr[3]),
+        Plane::new(planes_arr[4], planes_arr[5], planes_arr[6], planes_arr[7]),
+        Plane::new(planes_arr[8], planes_arr[9], planes_arr[10], planes_arr[11]),
+        Plane::new(planes_arr[12], planes_arr[13], planes_arr[14], planes_arr[15]),
+        Plane::new(planes_arr[16], planes_arr[17], planes_arr[18], planes_arr[19]),
+        Plane::new(planes_arr[20], planes_arr[21], planes_arr[22], planes_arr[23]),
+    ];
+    
+    let frustum = Frustum::new(frustum_planes);
+    
+    // Test each bound and build bitmask
+    let mut visible_mask: u64 = 0;
+    let batch_size = 64.min(count as usize);
+    
+    for i in 0..batch_size {
+        let idx = i * 6;
+        let aabb = Aabb::new(
+            bounds_data[idx], bounds_data[idx + 1], bounds_data[idx + 2],
+            bounds_data[idx + 3], bounds_data[idx + 4], bounds_data[idx + 5],
+        );
+        
+        if frustum.test_aabb(&aabb) != 0 {
+            visible_mask |= 1u64 << i;
+        }
+    }
+    
+    visible_mask as jlong
+}
+
+/// Propagate light in parallel
+/// Java signature: public static native void propagateLightParallel(byte[] levels, long queuePtr, int queueCount);
+#[no_mangle]
+pub extern "system" fn Java_com_rustium_RustLib_propagateLightParallel(
+    _env: JNIEnv,
+    _class: JClass,
+    _levels: jni::objects::JByteArray<'_>,
+    _queue_ptr: jlong,
+    _queue_count: jint,
+) {
+    // TODO: Implement light propagation
+}
+
+/// Convert vertices batch in parallel
+/// Java signature: public static native void convertVerticesBatchParallel(byte[] inputData, long outputPtr, int stride, int count);
+#[no_mangle]
+pub extern "system" fn Java_com_rustium_RustLib_convertVerticesBatchParallel(
+    _env: JNIEnv,
+    _class: JClass,
+    _input_data: jni::objects::JByteArray<'_>,
+    _output_ptr: jlong,
+    _stride: jint,
+    _count: jint,
+) {
+    // TODO: Implement vertex conversion
+}

@@ -173,23 +173,6 @@ tasks {
         from("src/main/resources/natives") {
             into("natives")
         }
-    }
-
-    val apiJar = register<org.gradle.jvm.tasks.Jar>("apiJar") {
-        archiveClassifier.set("api")
-        from(configurationApiModJava)
-        from(sourceSets.main.get().resources)
-        destinationDirectory.set(file(rootProject.layout.buildDirectory).resolve("api"))
-    }
-
-    val apiSourcesJar = register<org.gradle.jvm.tasks.Jar>("apiSourcesJar") {
-        archiveClassifier.set("api-sources")
-        from(configurationApiModSources)
-        from(sourceSets.main.get().resources)
-        destinationDirectory.set(file(rootProject.layout.buildDirectory).resolve("api-sources"))
-    }
-
-    jar {
         destinationDirectory.set(file(rootProject.layout.buildDirectory).resolve("mods"))
     }
 

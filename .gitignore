@@ -1,83 +1,45 @@
 ```
 # Gradle
 .gradle/
+!gradle.properties
+!gradlew
+!gradlew.bat
+!gradle/
+
+# Build artifacts
 build/
+!build.gradle
+!build.gradle.kts
 
-# Kotlin
-*.class
-*.kotlin_metadata
-*.kotlin_module
-
-# Build directories
-buildSrc/build/
+# Dependencies cache
+.cache/
+.caches/
 
 # IDE
-.vscode/
 .idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.settings/
+.project
+.classpath
+.target/
 
 # Logs
 *.log
+!*.log.*
+
+# Temporary files
+*.tmp
+*.temp
+*~
+.DS_Store
+Thumbs.db
 
 # Environment
 .env
 .env.local
-*.env.*
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Archives
-*.zip
-*.tar
-*.gz
-*.tgz
-*.rar
-*.7z
-*.jar
-*.war
-*.ear
-*.sar
-
-# Testing
-coverage/
-htmlcov/
-.coverage
-
-# Python (if present)
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-*.so
-
-# Node.js (if present)
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Java (if present)
-*.class
-*.jar
-*.war
-*.ear
-*.sar
-*.nar
-*.dex
-
-# C/C++ (if present)
-*.o
-*.a
-*.so
-*.dll
-*.dylib
-*.exe
-*.out
-
-# Rust (if present)
-target/
-Cargo.lock
-
+.env.*
+!.env.example
 ```
