@@ -4,7 +4,7 @@
 //! before they reach the GPU, significantly reducing draw calls and fragment shading.
 
 use jni::JNIEnv;
-use jni::objects::{JClass, JLongArray, JDoubleArray};
+use jni::objects::{JClass, JFloatArray};
 use jni::sys::{jlong, jint};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -38,7 +38,7 @@ pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_cre
     let coarse_w = (w / 16).max(1);
     let coarse_h = (h / 16).max(1);
     
-    let mut buffer = vec![1.0f32; (coarse_w * coarse_h) as usize];
+    let buffer = vec![1.0f32; (coarse_w * coarse_h) as usize];
     
     let ctx = Box::new(OcclusionContext {
         width: w,
@@ -56,23 +56,23 @@ pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_upd
     env: JNIEnv,
     _class: JClass,
     ctx_ptr: jlong,
-    view_matrix: JDoubleArray,
-    proj_matrix: JDoubleArray,
-    opaque_chunks: JLongArray,
+    view_matrix: JFloatArray<'_>,
+    proj_matrix: JFloatArray<'_>,
+    opaque_chunks: JFloatArray<'_>,
 ) {
     if ctx_ptr == 0 { return; }
     
     let context = unsafe { &mut *(ctx_ptr as *mut OcclusionContext) };
     
-    // Get view matrix (16 doubles)
-    let mut view_arr = [0.0f64; 16];
-    if env.get_double_array_region(&view_matrix, 0, &mut view_arr).is_err() {
+    // Get view matrix (16 floats)
+    let mut view_arr = [0.0f32; 16];
+    if env.get_float_array_region(&view_matrix, 0, &mut view_arr).is_err() {
         return;
     }
     
-    // Get projection matrix (16 doubles)
-    let mut proj_arr = [0.0f64; 16];
-    if env.get_double_array_region(&proj_matrix, 0, &mut proj_arr).is_err() {
+    // Get projection matrix (16 floats)
+    let mut proj_arr = [0.0f32; 16];
+    if env.get_float_array_region(&proj_matrix, 0, &mut proj_arr).is_err() {
         return;
     }
     
@@ -82,8 +82,8 @@ pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_upd
         return;
     }
     
-    let mut chunks_data = vec![0.0f64; (chunk_count * 6) as usize];
-    if env.get_double_array_region(&opaque_chunks, 0, &mut chunks_data).is_err() {
+    let mut chunks_data = vec![0.0f32; (chunk_count * 6) as usize];
+    if env.get_float_array_region(&opaque_chunks, 0, &mut chunks_data).is_err() {
         return;
     }
     
@@ -96,21 +96,18 @@ pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_upd
     
     // Combined matrix for projection
     let mut vp_matrix = [0.0f32; 16];
-    // Convert f64 to f32 and multiply
-    let view_f32: [f32; 16] = view_arr.map(|x| x as f32);
-    let proj_f32: [f32; 16] = proj_arr.map(|x| x as f32);
-    matrix_multiply(&mut vp_matrix, &proj_f32, &view_f32);
+    matrix_multiply(&mut vp_matrix, &proj_arr, &view_arr);
     
     // Render opaque chunks into coarse depth buffer
     for i in 0..chunk_count as usize {
         let idx = i * 6;
         let bounds = ChunkBounds {
-            min_x: chunks_data[idx] as f32,
-            min_y: chunks_data[idx + 1] as f32,
-            min_z: chunks_data[idx + 2] as f32,
-            max_x: chunks_data[idx + 3] as f32,
-            max_y: chunks_data[idx + 4] as f32,
-            max_z: chunks_data[idx + 5] as f32,
+            min_x: chunks_data[idx],
+            min_y: chunks_data[idx + 1],
+            min_z: chunks_data[idx + 2],
+            max_x: chunks_data[idx + 3],
+            max_y: chunks_data[idx + 4],
+            max_z: chunks_data[idx + 5],
         };
         update_depth_for_aabb(context, &vp_matrix, &bounds);
     }
@@ -124,7 +121,7 @@ pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_tes
     env: JNIEnv,
     _class: JClass,
     ctx_ptr: jlong,
-    chunk_bounds: JLongArray,
+    chunk_bounds: JFloatArray<'_>,
 ) -> jlong {
     if ctx_ptr == 0 { return 0; }
     
@@ -135,8 +132,8 @@ pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_tes
         return 0;
     }
     
-    let mut bounds_data = vec![0.0f64; (count * 6) as usize];
-    if env.get_double_array_region(&chunk_bounds, 0, &mut bounds_data).is_err() {
+    let mut bounds_data = vec![0.0f32; (count * 6) as usize];
+    if env.get_float_array_region(&chunk_bounds, 0, &mut bounds_data).is_err() {
         return 0;
     }
     
@@ -149,16 +146,16 @@ pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_tes
     for i in 0..batch_size {
         let idx = i * 6;
         let bounds = ChunkBounds {
-            min_x: bounds_data[idx] as f32,
-            min_y: bounds_data[idx + 1] as f32,
-            min_z: bounds_data[idx + 2] as f32,
-            max_x: bounds_data[idx + 3] as f32,
-            max_y: bounds_data[idx + 4] as f32,
-            max_z: bounds_data[idx + 5] as f32,
+            min_x: bounds_data[idx],
+            min_y: bounds_data[idx + 1],
+            min_z: bounds_data[idx + 2],
+            max_x: bounds_data[idx + 3],
+            max_y: bounds_data[idx + 4],
+            max_z: bounds_data[idx + 5],
         };
         
         if test_aabb_against_hierarchy(context, &bounds) {
-            visible_mask |= (1u64 << i);
+            visible_mask |= 1u64 << i;
         } else {
             culled_count += 1;
         }
