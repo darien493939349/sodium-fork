@@ -1,45 +1,43 @@
 ```
-# Gradle
-.gradle/
-!gradle.properties
-!gradlew
-!gradlew.bat
-!gradle/
+# Compiled and build artifacts
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.so
+*.dylib
+target/
 
-# Build artifacts
-build/
-!build.gradle
-!build.gradle.kts
+# Dependencies
+Cargo.lock
+**/vendor/
+**/deps/
 
-# Dependencies cache
-.cache/
-.caches/
-
-# IDE
-.idea/
-.vscode/
-*.iml
-*.ipr
-*.iws
-.settings/
-.project
-.classpath
-.target/
-
-# Logs
+# Logs and temp files
 *.log
-!*.log.*
-
-# Temporary files
 *.tmp
-*.temp
-*~
-.DS_Store
-Thumbs.db
+*.swp
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
 
 # Environment
 .env
 .env.local
-.env.*
-!.env.example
+*.env.*
+
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# Rust-specific
+**/target/
+Cargo.lock
+**/vendor/
+**/deps/
 ```

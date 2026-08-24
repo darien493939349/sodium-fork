@@ -22,7 +22,7 @@ pub mod occlusion;
 use jni::JNIEnv;
 use jni::objects::{JClass, JByteBuffer, JFloatArray};
 use jni::sys::{jint, jlong, JNI_TRUE, JNI_FALSE, jboolean};
-use frustum_culling::{Frustum, Plane, Aabb};
+use frustum_culling::{Frustum, Plane, Aabb, build_frustum_planes, normalize_frustum};
 
 /// Initialize the native library - called once when the library loads
 #[no_mangle]
