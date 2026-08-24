@@ -1,0 +1,19 @@
+[package]
+name = "sodium-rust"
+version = "0.1.0"
+edition = "2021"
+description = "High-performance Minecraft rendering utilities ported from Sodium to Rust"
+license = "LGPL-3.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+jni = "0.21"
+lazy_static = "1.4"
+log = "0.4"
+libc = "0.2"
+
+[features]
+default = []

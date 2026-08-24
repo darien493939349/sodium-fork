@@ -1,34 +1,31 @@
-# gradle
+```
+# Rust-specific ignores
+target/
+Cargo.lock
 
-.gradle/
-build/
-out/
-classes/
+# Dependencies
+vendor/
 
-# idea
+# Compiled and build artifacts
+**/*.rs.bk
+**/*.rlib
+**/*.so
+**/*.dylib
+**/*.dll
+**/*.a
+**/*.o
+**/*.obj
 
-.idea/
-*.iml
-*.ipr
-*.iws
+# Logs and temp files
+*.log
+*.tmp
+*.swp
 
-# vscode
-
-.settings/
+# Editors
 .vscode/
-bin/
-.classpath
-.project
+.idea/
 
-# fabric
-
-run/
-neoforge/runs
-# macOS
-
+# OS generated files
 .DS_Store
-.AppleDouble
-.LSOverride
-
-# Kotlin compiler working directory
-.kotlin
+Thumbs.db
+```
