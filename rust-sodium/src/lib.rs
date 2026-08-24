@@ -394,52 +394,117 @@ pub extern "system" fn Java_net_caffeinemc_sodium_render_native_RustIntegration_
     RUST_EXECUTION_COUNTER.store(0, Ordering::Relaxed);
 }
 
-/// Batched Mesh Building Entry Point
-/// Receives pointers to multiple chunk data arrays, builds them all in one go,
-/// and returns a pointer to the unified vertex buffer.
+/// Optimized Vertex Format Conversion & Mesh Building
+/// Processes chunk data and generates GPU-ready vertices with zero allocations in hot path
 /// 
-/// Java signature: public static native long buildChunkMeshesBatched(long[] chunkDataPtrs, int chunkCount, int stride, int[] outBufferSize);
+/// Java signature: public static native long buildChunkMeshOptimized(
+///     long chunkDataPtr, int stride, long outputPtr, int maxVertices, int[] outVertexCount);
 /// 
 /// Args:
-///   chunk_data_ptrs: Pointer to an array of pointers (each points to a chunk's block data)
-///   chunk_count: Number of chunks to process in this batch
-///   stride: Size of each chunk data block
-///   out_buffer_size: Output parameter for the resulting buffer size
+///   chunk_data_ptr: Pointer to raw chunk block data
+///   stride: Size of chunk data in bytes
+///   output_ptr: Pre-allocated output buffer for vertices (must be at least maxVertices * sizeof(Vertex))
+///   max_vertices: Maximum number of vertices that can be written
+///   out_vertex_count: Output parameter for actual vertex count written
 /// Returns:
-///   Pointer to the raw vertex buffer (Java must manage this memory or copy it)
+///   Pointer to output buffer (same as output_ptr for zero-copy)
 #[no_mangle]
-pub extern "system" fn Java_net_caffeinemc_sodium_render_native_RustIntegration_buildChunkMeshesBatched(
-    chunk_data_ptrs: *const *const u8,
-    chunk_count: i32,
+pub extern "system" fn Java_net_caffeinemc_sodium_render_native_RustIntegration_buildChunkMeshOptimized(
+    chunk_data_ptr: *const u8,
     stride: i32,
-    out_buffer_size: *mut i32,
-) -> *mut std::ffi::c_void {
-    // Increment heartbeat - THIS PROVES RUST IS RUNNING
+    output_ptr: *mut mesh_builder::Vertex,
+    max_vertices: i32,
+    out_vertex_count: *mut i32,
+) -> *mut mesh_builder::Vertex {
+    // Increment heartbeat
     RUST_EXECUTION_COUNTER.fetch_add(1, Ordering::Relaxed);
 
-    if chunk_data_ptrs.is_null() || chunk_count <= 0 {
+    if chunk_data_ptr.is_null() || output_ptr.is_null() || max_vertices <= 0 {
+        unsafe { *out_vertex_count = 0; }
         return std::ptr::null_mut();
     }
 
     unsafe {
-        // Create a slice of the input pointers
+        let count = mesh_builder::build_chunk_mesh(
+            chunk_data_ptr,
+            stride as usize,
+            output_ptr,
+            max_vertices as usize,
+        );
+        *out_vertex_count = count as i32;
+        output_ptr
+    }
+}
+
+/// Batched Mesh Building - Process up to 64 chunks in single FFI call
+/// Maximizes throughput by minimizing FFI overhead
+/// 
+/// Java signature: public static native int buildChunkMeshesBatchedOptimized(
+///     long[] chunkDataPtrs, int[] strides, long[] outputPtrs, int[] maxVertices);
+/// 
+/// Returns: Total vertices generated across all chunks
+#[no_mangle]
+pub extern "system" fn Java_net_caffeinemc_sodium_render_native_RustIntegration_buildChunkMeshesBatchedOptimized(
+    chunk_data_ptrs: *const *const u8,
+    chunk_count: i32,
+    strides_ptr: *const i32,
+    output_ptrs: *const *mut mesh_builder::Vertex,
+    max_vertices_ptr: *const i32,
+) -> i32 {
+    // Increment heartbeat once per batch (not per chunk)
+    RUST_EXECUTION_COUNTER.fetch_add(1, Ordering::Relaxed);
+
+    if chunk_data_ptrs.is_null() || chunk_count <= 0 || chunk_count > 64 {
+        return 0;
+    }
+
+    unsafe {
         let chunks = slice::from_raw_parts(chunk_data_ptrs, chunk_count as usize);
-        
-        // Call the optimized mesh builder
-        let mesh_data = mesh_builder::build_batched_mesh(chunks, stride as usize);
+        let strides = slice::from_raw_parts(strides_ptr, chunk_count as usize);
+        let outputs = slice::from_raw_parts(output_ptrs, chunk_count as usize);
+        let max_verts = slice::from_raw_parts(max_vertices_ptr, chunk_count as usize);
+
+        let mut output_slice: Vec<*mut mesh_builder::Vertex> = outputs.to_vec();
+        let strides_usize: Vec<usize> = strides.iter().map(|&s| s as usize).collect();
+        let max_verts_usize: Vec<usize> = max_verts.iter().map(|&m| m as usize).collect();
+
+        mesh_builder::build_batched_mesh(
+            chunks,
+            &strides_usize,
+            &mut output_slice,
+            &max_verts_usize,
+        ) as i32
+    }
+}
+
+/// Simple batched interface - returns new buffer (easier Java integration but extra copy)
+/// Java signature: public static native long buildChunkMeshesSimple(long[] chunkDataPtrs, int stride, int[] outSize);
+#[no_mangle]
+pub extern "system" fn Java_net_caffeinemc_sodium_render_native_RustIntegration_buildChunkMeshesSimple(
+    chunk_data_ptrs: *const *const u8,
+    chunk_count: i32,
+    stride: i32,
+    out_size: *mut i32,
+) -> *mut std::ffi::c_void {
+    RUST_EXECUTION_COUNTER.fetch_add(1, Ordering::Relaxed);
+
+    if chunk_data_ptrs.is_null() || chunk_count <= 0 {
+        unsafe { *out_size = 0; }
+        return std::ptr::null_mut();
+    }
+
+    unsafe {
+        let chunks = slice::from_raw_parts(chunk_data_ptrs, chunk_count as usize);
+        let mesh_data = mesh_builder::build_batched_mesh_simple(chunks, stride as usize);
 
         if mesh_data.is_empty() {
-            *out_buffer_size = 0;
+            *out_size = 0;
             return std::ptr::null_mut();
         }
 
-        // Set output size
-        *out_buffer_size = mesh_data.len() as i32;
-
-        // Leak the vector intentionally to transfer ownership to Java
-        // Java must call 'freeBuffer' later to avoid leaks
+        *out_size = mesh_data.len() as i32;
         let ptr = mesh_data.as_ptr() as *mut std::ffi::c_void;
-        std::mem::forget(mesh_data); 
+        std::mem::forget(mesh_data);
         ptr
     }
 }
