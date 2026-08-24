@@ -1,48 +1,83 @@
-```rust
-# Compiled and build artifacts
-*.o
-*.obj
-*.a
-*.so
-*.dylib
-*.dll
-*.exe
-target/
+```
+# Gradle
+.gradle/
+build/
 
-# Dependencies
-Cargo.lock
-**/vendor/
-**/deps/
+# Kotlin
+*.class
+*.kotlin_metadata
+*.kotlin_module
 
-# Logs and temp files
-*.log
-*.tmp
+# Build directories
+buildSrc/build/
 
-# Editors
+# IDE
 .vscode/
 .idea/
-*.swp
-*.swo
+
+# Logs
+*.log
 
 # Environment
 .env
 .env.local
 *.env.*
 
-# Coverage
+# OS
+.DS_Store
+Thumbs.db
+
+# Archives
+*.zip
+*.tar
+*.gz
+*.tgz
+*.rar
+*.7z
+*.jar
+*.war
+*.ear
+*.sar
+
+# Testing
 coverage/
 htmlcov/
 .coverage
 
-# OS generated files
-.DS_Store
-Thumbs.db
-```
+# Python (if present)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
 
-Wait, I need to reconsider this. Looking at the file changes, there are only source files being modified (.rs files), and no build artifacts, dependencies, or temporary files in the change list. According to rule 6, if the change list contains only source or config files and no build artifacts, dependencies, or temp files, I should output an empty .gitignore.
+# Node.js (if present)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-Since only Rust source files (`rust-sodium/src/lib.rs`, `rust-sodium/src/occlusion.rs`) are being modified, this should result in an empty .gitignore.
+# Java (if present)
+*.class
+*.jar
+*.war
+*.ear
+*.sar
+*.nar
+*.dex
 
-```rust
+# C/C++ (if present)
+*.o
+*.a
+*.so
+*.dll
+*.dylib
+*.exe
+*.out
+
+# Rust (if present)
+target/
+Cargo.lock
 
 ```

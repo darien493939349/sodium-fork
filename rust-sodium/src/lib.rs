@@ -21,7 +21,7 @@ pub mod occlusion;
 
 use jni::JNIEnv;
 use jni::objects::{JClass, JByteBuffer};
-use jni::sys::{jint, jlong, jobject, JNI_TRUE, JNI_FALSE, jboolean};
+use jni::sys::{jint, jlong, JNI_TRUE, JNI_FALSE, jboolean};
 
 /// Initialize the native library - called once when the library loads
 #[no_mangle]
@@ -532,8 +532,7 @@ pub extern "system" fn Java_net_caffeinemc_sodium_render_native_RustIntegration_
 // Mesh Builder JNI Bindings (Internal Face Culling + Multi-threading)
 // ============================================================================
 
-use jni::objects::{JByteArray, JLongArray, JIntArray};
-use jni::sys::jlongArray;
+use jni::objects::{JLongArray, JIntArray};
 
 /// Get formatted Rust debug info for F3 overlay
 /// Java signature: public static native String getRustDebugInfo();
@@ -569,12 +568,10 @@ pub extern "system" fn Java_net_caffeinemc_mods_sodium_client_render_RustLib_bui
     let mut op_vec = vec![0i64; num_chunks];
     let mut mv_vec = vec![0i32; num_chunks];
 
-    unsafe {
-        env.get_long_array_region(chunk_ptrs, 0, &mut cp_vec).ok();
-        env.get_int_array_region(strides, 0, &mut st_vec).ok();
-        env.get_long_array_region(output_ptrs, 0, &mut op_vec).ok();
-        env.get_int_array_region(max_vertices, 0, &mut mv_vec).ok();
-    }
+    env.get_long_array_region(&chunk_ptrs, 0, &mut cp_vec).ok();
+    env.get_int_array_region(&strides, 0, &mut st_vec).ok();
+    env.get_long_array_region(&output_ptrs, 0, &mut op_vec).ok();
+    env.get_int_array_region(&max_vertices, 0, &mut mv_vec).ok();
 
     // Convert to raw pointers
     let chunks_data: Vec<*const u8> = cp_vec.iter().map(|&p| p as *const u8).collect();
