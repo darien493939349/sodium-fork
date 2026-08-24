@@ -1,13 +1,48 @@
-```
-# Gradle
-.gradle/
-build/
-!build.gradle.kts
+```rust
+# Compiled and build artifacts
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+target/
 
 # Dependencies
-libs/
-lib/
+Cargo.lock
+**/vendor/
+**/deps/
 
-# Logs
+# Logs and temp files
 *.log
+*.tmp
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# OS generated files
+.DS_Store
+Thumbs.db
+```
+
+Wait, I need to reconsider this. Looking at the file changes, there are only source files being modified (.rs files), and no build artifacts, dependencies, or temporary files in the change list. According to rule 6, if the change list contains only source or config files and no build artifacts, dependencies, or temp files, I should output an empty .gitignore.
+
+Since only Rust source files (`rust-sodium/src/lib.rs`, `rust-sodium/src/occlusion.rs`) are being modified, this should result in an empty .gitignore.
+
+```rust
+
 ```
