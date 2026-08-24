@@ -109,38 +109,56 @@ tasks {
         workingDir(file("${rootProject.projectDir}/rust-sodium"))
         commandLine("cargo", "build", "--release")
         
+        val rustTargetDir = file("${rootProject.projectDir}/rust-sodium/target/release")
+        val nativesDir = file("${project.projectDir}/src/main/resources/natives")
+        
         doLast {
-            val rustTargetDir = file("${rootProject.projectDir}/rust-sodium/target/release")
-            val nativesDir = file("${project.projectDir}/src/main/resources/natives")
+            // Ensure natives directory exists
+            nativesDir.mkdirs()
             
             // Copy Linux library
             val linuxLib = file("$rustTargetDir/libsodium_rust.so")
             if (linuxLib.exists()) {
-                copy {
-                    from(linuxLib)
-                    into(nativesDir)
+                val destFile = file("$nativesDir/libsodium_rust.so")
+                if (!destFile.exists() || linuxLib.length() != destFile.length()) {
+                    copy {
+                        from(linuxLib)
+                        into(nativesDir)
+                    }
+                    println("[Rustium] Copied libsodium_rust.so to natives/")
+                } else {
+                    println("[Rustium] libsodium_rust.so already up-to-date")
                 }
-                println("[Rustium] Copied libsodium_rust.so to natives/")
             }
             
             // Copy macOS library
             val macLib = file("$rustTargetDir/libsodium_rust.dylib")
             if (macLib.exists()) {
-                copy {
-                    from(macLib)
-                    into(nativesDir)
+                val destFile = file("$nativesDir/libsodium_rust.dylib")
+                if (!destFile.exists() || macLib.length() != destFile.length()) {
+                    copy {
+                        from(macLib)
+                        into(nativesDir)
+                    }
+                    println("[Rustium] Copied libsodium_rust.dylib to natives/")
+                } else {
+                    println("[Rustium] libsodium_rust.dylib already up-to-date")
                 }
-                println("[Rustium] Copied libsodium_rust.dylib to natives/")
             }
             
             // Copy Windows DLL
             val winLib = file("$rustTargetDir/sodium_rust.dll")
             if (winLib.exists()) {
-                copy {
-                    from(winLib)
-                    into(nativesDir)
+                val destFile = file("$nativesDir/sodium_rust.dll")
+                if (!destFile.exists() || winLib.length() != destFile.length()) {
+                    copy {
+                        from(winLib)
+                        into(nativesDir)
+                    }
+                    println("[Rustium] Copied sodium_rust.dll to natives/")
+                } else {
+                    println("[Rustium] sodium_rust.dll already up-to-date")
                 }
-                println("[Rustium] Copied sodium_rust.dll to natives/")
             }
         }
     }

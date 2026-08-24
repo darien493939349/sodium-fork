@@ -1,65 +1,13 @@
 ```
-# Rust/Cargo
-target/
-Cargo.lock
-**/*.rs.bk
-
-# Dependencies
-node_modules/
-**/node_modules/
-
-# Build artifacts
-build/
-dist/
-*.jar
-*.class
-
-# Python (if present)
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-env/
-venv/
-.venv/
-.venv.bak/
-pip-log.txt
-pip-delete-this-directory.txt
-.tox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.log
-*.tmp
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Environment
-.env
-.env.local
-*.env.*
-
 # Gradle
 .gradle/
-!gradle/wrapper/gradle-wrapper.jar
+build/
+!build.gradle.kts
 
-# Rust specific
-**/target/
-Cargo.lock
+# Dependencies
+libs/
+lib/
 
-# Temporary files
-*.tmp
-*~
+# Logs
+*.log
 ```
